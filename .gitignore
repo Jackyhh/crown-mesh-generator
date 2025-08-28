@@ -1,5 +1,7 @@
 /out
 /data
+/logs
+CLAUDE.md
 .vscode
 .cache
 *.pyc
