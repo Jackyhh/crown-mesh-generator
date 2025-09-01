@@ -5,7 +5,12 @@ import numpy as np
 from glob import glob
 from torch.utils import data
 from src.utils import load_rgb, load_mask, get_camera_params
-from pytorch3d.renderer import PerspectiveCameras
+try:
+    from pytorch3d.renderer import PerspectiveCameras
+    PYTORCH3D_AVAILABLE = True
+except ImportError:
+    PYTORCH3D_AVAILABLE = False
+    PerspectiveCameras = None
 from skimage import img_as_float32
 
 ##################################################
@@ -170,8 +175,11 @@ class PixelNeRFDTUDataset(data.Dataset):
             pc[:, 0] = -(pc[:, 0] - (im_size[0]-1)/2) * 2 / (s-1)
             pc[:, 1] = -(pc[:, 1] - (im_size[1]-1)/2) * 2 / (s-1)
 
-            camera = PerspectiveCameras(focal_length=-focal, principal_point=pc, 
-                                        device=device, R=RR, T=tt)
+            if PYTORCH3D_AVAILABLE:
+                camera = PerspectiveCameras(focal_length=-focal, principal_point=pc, 
+                                            device=device, R=RR, T=tt)
+            else:
+                camera = None  # Will need custom camera handling
 
             # calculate camera rays
             uv = uv_creation(im_size)[None].float()

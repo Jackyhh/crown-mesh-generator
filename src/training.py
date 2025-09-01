@@ -9,8 +9,52 @@ from tqdm import tqdm
 from src.dpsr import DPSR
 from src.utils import grid_interp, export_pointcloud, export_mesh, \
                       mc_from_psr, scale2onet, GaussianSmoothing
-from pytorch3d.ops.knn import knn_gather, knn_points
-from pytorch3d.loss import chamfer_distance
+try:
+    from pytorch3d.ops.knn import knn_gather, knn_points
+    from pytorch3d.loss import chamfer_distance
+    PYTORCH3D_AVAILABLE = True
+except ImportError:
+    print("Warning: PyTorch3D not available. Some loss functions will use alternative implementations.")
+    PYTORCH3D_AVAILABLE = False
+    
+    def simple_chamfer_distance(x, y):
+        """Simple fallback chamfer distance implementation"""
+        # Compute pairwise distances
+        x_nn = torch.cdist(x, y)
+        y_nn = torch.cdist(y, x)
+        
+        # Forward chamfer
+        chamfer_x = torch.mean(torch.min(x_nn, dim=2)[0])
+        # Backward chamfer  
+        chamfer_y = torch.mean(torch.min(y_nn, dim=2)[0])
+        
+        return (chamfer_x + chamfer_y) / 2, None
+    
+    def simple_knn_points(x, y, K=1):
+        """Simple fallback KNN implementation"""
+        distances = torch.cdist(x, y)
+        _, idx = torch.topk(distances, K, dim=2, largest=False)
+        
+        class KnnResult:
+            def __init__(self, idx):
+                self.idx = idx
+        
+        return KnnResult(idx)
+    
+    def simple_knn_gather(features, idx):
+        """Simple fallback KNN gather implementation"""
+        batch_size, num_points, num_dims = features.shape
+        _, num_query, K = idx.shape
+        
+        # Expand indices for batch dimension
+        batch_idx = torch.arange(batch_size, device=features.device)[:, None, None, None]
+        gathered = features[batch_idx, idx]
+        
+        return gathered
+    
+    knn_gather = simple_knn_gather
+    knn_points = simple_knn_points  
+    chamfer_distance = simple_chamfer_distance
 from pdb import set_trace as st
 
 class Trainer(object):

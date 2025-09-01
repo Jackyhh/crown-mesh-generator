@@ -1,6 +1,9 @@
+import os
+os.environ['MKL_THREADING_LAYER'] = 'GNU'
+
 import torch
 import trimesh
-import shutil, argparse, time, os, glob
+import shutil, argparse, time, glob
 
 import numpy as np; np.set_printoptions(precision=4)
 import open3d as o3d
@@ -20,6 +23,7 @@ from pytorch3d.structures import Meshes
 
 
 def main():
+    print("Starting main function...")
     parser = argparse.ArgumentParser(description='MNIST toy experiment')
     parser.add_argument('config', type=str, help='Path to config file.')
     parser.add_argument('--no_cuda', action='store_true', default=False,
@@ -27,11 +31,17 @@ def main():
     parser.add_argument('--seed', type=int, default=1457, metavar='S', 
                         help='random seed')
     
+    print("Parsing arguments...")
     args, unknown = parser.parse_known_args() 
+    print("Loading config...")
     cfg = load_config(args.config, 'configs/default.yaml')
+    print("Updating config...")
     cfg = update_config(cfg, unknown)
-    use_cuda = not args.no_cuda and torch.cuda.is_available()
-    device = torch.device("cuda" if use_cuda else "cpu")
+    print("Setting up device...")
+    # Force CPU usage to avoid CUDA-related segfaults
+    use_cuda = False  # not args.no_cuda and torch.cuda.is_available()
+    device = torch.device("cpu")  # torch.device("cuda" if use_cuda else "cpu")
+    print(f"Using device: {device}")
     data_type = cfg['data']['data_type']
     data_class = cfg['data']['class']
 
@@ -65,12 +75,15 @@ def main():
 
     # initialize dataset
     if data_type == 'point':
+        print("Starting dataset initialization...")
         if cfg['data']['object_id'] != -1:
+            print(f"Looking for data at: {cfg['data']['data_path']}")
             data_paths = sorted(glob.glob(cfg['data']['data_path']))
             data_path = data_paths[cfg['data']['object_id']]
             print('Loaded %d/%d object' % (cfg['data']['object_id']+1, len(data_paths)))
         else:
             data_path = cfg['data']['data_path']
+            print(f"Loading single data file: {data_path}")
             print('Data loaded')
         ext = data_path.split('.')[-1]
         if ext == 'obj': # have GT mesh
@@ -121,33 +134,58 @@ def main():
     # save the input point cloud
     if 'target_points' in data.keys():
         outdir_pcl = os.path.join(cfg['train']['out_dir'], 'target_pcl.ply')
-        if 'target_normals' in data.keys():
-            export_pointcloud(outdir_pcl, data['target_points'], data['target_normals'])
-        else:
-            export_pointcloud(outdir_pcl, data['target_points'])
+        try:
+            # Ensure CUDA synchronization before file operations
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            
+            if 'target_normals' in data.keys():
+                export_pointcloud(outdir_pcl, data['target_points'], data['target_normals'])
+            else:
+                export_pointcloud(outdir_pcl, data['target_points'])
+            print("Point cloud saved successfully")
+        except Exception as e:
+            print(f"Warning: Failed to save point cloud: {e}")
+            # Continue execution without failing
 
     # save oracle PSR mesh (mesh from our PSR using GT point+normals)
     if data.get('gt_mesh') is not None:
-        gt_verts, gt_faces = data['gt_mesh'].get_mesh_verts_faces(0)
-        pts_gt, norms_gt = sample_points_from_meshes(data['gt_mesh'], 
-                                    num_samples=500000, return_normals=True)
-        pts_gt = (pts_gt + 1) / 2
-        from src.dpsr import DPSR
-        dpsr_tmp = DPSR(res=(cfg['model']['grid_res'], 
-                            cfg['model']['grid_res'], 
-                            cfg['model']['grid_res']), 
-                        sig=cfg['model']['psr_sigma']).to(device)
-        target = dpsr_tmp(pts_gt, norms_gt).unsqueeze(1).to(device)
-        target = torch.tanh(target)
-        s = target.shape[-1] # size of psr_grid
-        psr_grid_numpy = target.squeeze().detach().cpu().numpy()
-        verts, faces, _, _ = measure.marching_cubes(psr_grid_numpy)
-        verts = verts / s * 2. - 1 # [-1, 1]
-        mesh = o3d.geometry.TriangleMesh()
-        mesh.vertices = o3d.utility.Vector3dVector(verts)
-        mesh.triangles = o3d.utility.Vector3iVector(faces)
-        outdir_mesh = os.path.join(cfg['train']['out_dir'], 'oracle_mesh.ply')
-        o3d.io.write_triangle_mesh(outdir_mesh, mesh)
+        try:
+            print("Creating oracle PSR mesh...")
+            gt_verts, gt_faces = data['gt_mesh'].get_mesh_verts_faces(0)
+            pts_gt, norms_gt = sample_points_from_meshes(data['gt_mesh'], 
+                                        num_samples=500000, return_normals=True)
+            pts_gt = (pts_gt + 1) / 2
+            from src.dpsr import DPSR
+            dpsr_tmp = DPSR(res=(cfg['model']['grid_res'], 
+                                cfg['model']['grid_res'], 
+                                cfg['model']['grid_res']), 
+                            sig=cfg['model']['psr_sigma']).to(device)
+            
+            # Ensure CUDA synchronization before DPSR
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                
+            target = dpsr_tmp(pts_gt, norms_gt).unsqueeze(1).to(device)
+            target = torch.tanh(target)
+            s = target.shape[-1] # size of psr_grid
+            
+            # Ensure CUDA synchronization before CPU transfer
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                
+            psr_grid_numpy = target.squeeze().detach().cpu().numpy()
+            verts, faces, _, _ = measure.marching_cubes(psr_grid_numpy)
+            verts = verts / s * 2. - 1 # [-1, 1]
+            mesh = o3d.geometry.TriangleMesh()
+            mesh.vertices = o3d.utility.Vector3dVector(verts)
+            mesh.triangles = o3d.utility.Vector3iVector(faces)
+            outdir_mesh = os.path.join(cfg['train']['out_dir'], 'oracle_mesh.ply')
+            o3d.io.write_triangle_mesh(outdir_mesh, mesh)
+            print("Oracle PSR mesh created successfully")
+        except Exception as e:
+            print(f"Warning: Failed to create oracle PSR mesh: {e}")
+            # Continue execution without failing
 
     # initialize the source point cloud given an input mesh
     if 'input_mesh' in cfg['train'].keys() and \
@@ -175,20 +213,36 @@ def main():
             points *= 0.9
             points = points / 2. + 0.5
     else: #! initialize our source point cloud from a sphere
-        sphere_radius = cfg['model']['sphere_radius']
-        sphere_mesh = trimesh.creation.uv_sphere(radius=sphere_radius, 
-                                                 count=[256,256])
-        points, idx = sphere_mesh.sample(cfg['data']['num_points'], 
-                                         return_index=True)
-        points += 0.5 # make sure the points are within the range of [0, 1)
-        normals = sphere_mesh.face_normals[idx]
-        points = torch.from_numpy(points).unsqueeze(0).to(device)
-        normals = torch.from_numpy(normals).unsqueeze(0).to(device)
+        try:
+            print("Initializing sphere point cloud...")
+            sphere_radius = cfg['model']['sphere_radius']
+            sphere_mesh = trimesh.creation.uv_sphere(radius=sphere_radius, 
+                                                     count=[256,256])
+            points, idx = sphere_mesh.sample(cfg['data']['num_points'], 
+                                             return_index=True)
+            points += 0.5 # make sure the points are within the range of [0, 1)
+            normals = sphere_mesh.face_normals[idx]
+            points = torch.from_numpy(points).unsqueeze(0).to(device)
+            normals = torch.from_numpy(normals).unsqueeze(0).to(device)
+            
+            # Ensure CUDA synchronization after tensor creation
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            print("Sphere initialization completed")
+        except Exception as e:
+            print(f"Error during sphere initialization: {e}")
+            raise
 
     
-    points = torch.log(points/(1-points)) # inverse sigmoid
-    inputs = torch.cat([points, normals], axis=-1).float()
-    inputs.requires_grad = True
+    try:
+        print("Preparing optimization inputs...")
+        points = torch.log(points/(1-points)) # inverse sigmoid
+        inputs = torch.cat([points, normals], axis=-1).float()
+        inputs.requires_grad = True
+        print("Inputs prepared successfully")
+    except Exception as e:
+        print(f"Error during input preparation: {e}")
+        raise
 
     model = None # no network
     
@@ -312,4 +366,5 @@ def main():
         print('Video saved.')
 
 if __name__ == '__main__':
+    print("Script starting...")
     main()

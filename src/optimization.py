@@ -12,7 +12,23 @@ from src.visualize import visualize_points_mesh, visualize_psr_grid, \
                     visualize_mesh_phong, render_rgb
 from torchvision.utils import save_image
 from torchvision.io import write_video
-from pytorch3d.loss import chamfer_distance
+try:
+    from pytorch3d.loss import chamfer_distance
+except ImportError:
+    def simple_chamfer_distance(x, y):
+        """Simple fallback chamfer distance implementation"""
+        # Compute pairwise distances
+        x_nn = torch.cdist(x, y)
+        y_nn = torch.cdist(y, x)
+        
+        # Forward chamfer
+        chamfer_x = torch.mean(torch.min(x_nn, dim=2)[0])
+        # Backward chamfer  
+        chamfer_y = torch.mean(torch.min(y_nn, dim=2)[0])
+        
+        return (chamfer_x + chamfer_y) / 2, None
+    
+    chamfer_distance = simple_chamfer_distance
 import open3d as o3d
 
 class Trainer(object):

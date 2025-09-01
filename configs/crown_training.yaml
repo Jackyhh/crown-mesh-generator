@@ -1,0 +1,61 @@
+data:
+  class: null
+  data_type: psr_full
+  input_type: pointcloud
+  path: data/crown_psr
+  num_gt_points: 10000
+  num_offset: 7
+  pointcloud_n: 5000  # Increase from 3000 for better detail
+  pointcloud_noise: 0.01  # Reduce noise for cleaner crowns
+  
+model:
+  grid_res: 128 # poisson grid resolution
+  psr_sigma: 2
+  psr_tanh: True
+  normal_normalize: False
+  predict_normal: True
+  predict_offset: True
+  c_dim: 64  # Increase capacity for detailed crown geometry
+  s_offset: 0.001
+  encoder: local_pool_pointnet
+  encoder_kwargs:
+    hidden_dim: 64  # Increase for better feature extraction
+    plane_type: 'grid'
+    grid_resolution: 64  # Increase resolution for crown details
+    unet3d: True
+    unet3d_kwargs:
+      num_levels: 4  # Add one more level for finer details
+      f_maps: 64  # Increase feature maps
+      in_channels: 64
+      out_channels: 64
+  decoder: simple_local
+  decoder_kwargs:
+    sample_mode: bilinear
+    hidden_size: 64  # Match encoder capacity
+    
+train:
+  batch_size: 8  # Reduce batch size due to increased model capacity
+  lr: 3e-4  # Slightly reduce learning rate for stability
+  out_dir: out/crown/training
+  w_psr: 1
+  model_selection_metric: psr_l2
+  print_every: 50
+  checkpoint_every: 500
+  validate_every: 2000
+  backup_every: 5000
+  total_epochs: 100000  # Reduce epochs due to smaller dataset
+  visualize_every: 2000
+  exp_pcl: True
+  exp_mesh: True
+  n_workers: 0
+  n_workers_val: 0
+  
+generation:
+  batch_size: 50000  # Reduce for memory efficiency
+  exp_gt: False
+  exp_input: True
+  psr_resolution: 128
+  psr_sigma: 2
+  vis_n_outputs: 20  # Show more outputs for crown evaluation
+  generate_mesh: true
+  generate_pointcloud: true

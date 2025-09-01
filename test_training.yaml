@@ -8,7 +8,7 @@ data:
   pointcloud_n: 3000
   pointcloud_noise: 0.025
 model:
-  grid_res: 128 # poisson grid resolution
+  grid_res: 128  # Keep original resolution for compatibility
   psr_sigma: 2
   psr_tanh: True
   normal_normalize: False
@@ -32,14 +32,14 @@ model:
     sample_mode: bilinear # bilinear / nearest
     hidden_size: 32
 train:
-  batch_size: 16
+  batch_size: 4  # Reduced from 32 to save memory
   lr: 5e-4
-  out_dir: out/shapenet/noise_025_ours
+  out_dir: out/test_training
   w_psr: 1
   model_selection_metric: psr_l2
-  print_every: 100
+  print_every: 10  # More frequent printing to monitor progress
   checkpoint_every: 200
-  validate_every: 5000
+  validate_every: 1000  # More frequent validation
   backup_every: 10000
   total_epochs: 400000
   visualize_every: 5000
@@ -50,5 +50,5 @@ train:
 generation:
   exp_gt: False
   exp_input: True
-  psr_resolution: 128
+  psr_resolution: 64  # Reduced from 128
   psr_sigma: 2

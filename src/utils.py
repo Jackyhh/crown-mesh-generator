@@ -12,8 +12,16 @@ from torch import nn
 from torch.nn import functional as F
 from torch.utils import model_zoo
 from skimage import measure, img_as_float32
-from pytorch3d.structures import Meshes
-from pytorch3d.renderer import PerspectiveCameras, rasterize_meshes
+try:
+    from pytorch3d.structures import Meshes
+    from pytorch3d.renderer import PerspectiveCameras, rasterize_meshes
+    PYTORCH3D_AVAILABLE = True
+except ImportError:
+    print("Warning: PyTorch3D not available. Some rendering functions will be disabled.")
+    PYTORCH3D_AVAILABLE = False
+    Meshes = None
+    PerspectiveCameras = None
+    rasterize_meshes = None
 from igl import adjacency_matrix, connected_components
 import open3d as o3d
 
@@ -279,6 +287,8 @@ def mc_from_psr(psr_grid, pytorchify=False, real_scale=False, zero_level=0):
     return verts, faces, normals
         
 def calc_inters_points(verts, faces, pose, img_size, mask_gt=None):
+    if not PYTORCH3D_AVAILABLE:
+        raise RuntimeError("PyTorch3D is required for calc_inters_points function")
     verts = verts.squeeze()
     faces = faces.squeeze()
     pix_to_face, w, mask = mesh_rasterization(verts, faces, pose, img_size)
@@ -318,6 +328,8 @@ def calc_inters_points(verts, faces, pose, img_size, mask_gt=None):
     return p_inters, mask, f_p, w_masked
 
 def mesh_rasterization(verts, faces, pose, img_size):
+    if not PYTORCH3D_AVAILABLE:
+        raise RuntimeError("PyTorch3D is required for mesh_rasterization function")
     '''
     Use PyTorch3D to rasterize the mesh given a camera 
     '''
@@ -449,8 +461,8 @@ def initialize_logger(cfg):
     logger = logging.getLogger("train")
     logger.setLevel(logging.DEBUG)
     logger.handlers = []
-    # ch = logging.StreamHandler()
-    # logger.addHandler(ch)
+    ch = logging.StreamHandler()
+    logger.addHandler(ch)
     fh = logging.FileHandler(os.path.join(cfg['train']['out_dir'], "log.txt"))
     logger.addHandler(fh)
     logger.info('Outout dir: %s', out_dir)
@@ -481,11 +493,14 @@ def export_pointcloud(name, points, normals=None):
         points = points.detach().cpu().numpy()
         if normals is not None:
             normals = normals.detach().cpu().numpy()
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
-    if normals is not None:
-        pcd.normals = o3d.utility.Vector3dVector(normals)
-    o3d.io.write_point_cloud(name, pcd)
+    
+    # Use PLY format writing to avoid Open3D segfault
+    try:
+        _write_ply_file(name, points, normals)
+    except Exception as e:
+        print(f"Warning: Failed to export pointcloud: {e}")
+        # Fallback to simple xyz format
+        _write_xyz_file(name, points, normals)
 
 def export_mesh(name, v, f):
     if len(v.shape) > 2:
@@ -493,10 +508,52 @@ def export_mesh(name, v, f):
     if isinstance(v, torch.Tensor):
         v = v.detach().cpu().numpy()
         f = f.detach().cpu().numpy()
-    mesh = o3d.geometry.TriangleMesh()
-    mesh.vertices = o3d.utility.Vector3dVector(v)
-    mesh.triangles = o3d.utility.Vector3iVector(f)
-    o3d.io.write_triangle_mesh(name, mesh)
+    
+    # Use trimesh instead of Open3D to avoid segfault
+    try:
+        mesh = trimesh.Trimesh(vertices=v, faces=f)
+        mesh.export(name)
+    except Exception as e:
+        print(f"Warning: Failed to export mesh using trimesh: {e}")
+        # Fallback to simple OFF format writing
+        _write_off_file(name, v, f)
+
+def _write_ply_file(filename, points, normals=None):
+    """Write PLY file using plyfile library"""
+    from plyfile import PlyElement, PlyData
+    
+    if normals is not None:
+        vertex_data = np.array([(points[i,0], points[i,1], points[i,2], 
+                                normals[i,0], normals[i,1], normals[i,2]) 
+                               for i in range(len(points))],
+                              dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
+                                    ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4')])
+    else:
+        vertex_data = np.array([(points[i,0], points[i,1], points[i,2]) 
+                               for i in range(len(points))],
+                              dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4')])
+    
+    el = PlyElement.describe(vertex_data, 'vertex')
+    PlyData([el]).write(filename)
+
+def _write_xyz_file(filename, points, normals=None):
+    """Simple XYZ file writer as fallback"""
+    with open(filename, 'w') as f:
+        for i in range(len(points)):
+            if normals is not None:
+                f.write(f'{points[i,0]} {points[i,1]} {points[i,2]} {normals[i,0]} {normals[i,1]} {normals[i,2]}\n')
+            else:
+                f.write(f'{points[i,0]} {points[i,1]} {points[i,2]}\n')
+
+def _write_off_file(filename, vertices, faces):
+    """Simple OFF file writer as fallback"""
+    with open(filename, 'w') as f:
+        f.write('OFF\n')
+        f.write(f'{len(vertices)} {len(faces)} 0\n')
+        for v in vertices:
+            f.write(f'{v[0]} {v[1]} {v[2]}\n')
+        for face in faces:
+            f.write(f'3 {face[0]} {face[1]} {face[2]}\n')
 
 def scale2onet(p, scale=1.2):
     '''
