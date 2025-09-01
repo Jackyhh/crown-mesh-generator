@@ -1,6 +1,25 @@
-# Crown Mesh Generator
+# Crown Forge: A Differentiable Poisson Solver for Crown-like 3D Surface Reconstruction
 
-This project uses the "Shape As Points: A Differentiable Poisson Solver" framework for training crown mesh generation models from point cloud data.
+**Crown Forge** is a specialized 3D crown mesh generation system built upon the "Shape As Points: A Differentiable Poisson Solver" framework. This project enables high-quality reconstruction of crown-like 3D surfaces from unoriented point clouds using deep learning and differentiable Poisson surface reconstruction (DPSR).
+
+## About
+
+Crown Forge leverages a neural architecture that combines:
+
+- **Deep Point Cloud Encoding**: Uses LocalPoolPointnet with 3D UNet for robust feature extraction from noisy, unoriented crown point clouds
+- **Differentiable Poisson Surface Reconstruction**: Converts predicted oriented points to smooth, watertight crown meshes via FFT-based Poisson solving  
+- **Multi-Resolution Processing**: Operates at 128³ grid resolution with 4-level UNet architecture for capturing fine crown geometric details
+- **Robust Training**: Handles real-world crown data with noise tolerance (0.01 noise level) and 5000-point input processing
+
+### Key Technical Features
+
+- **Input**: Unoriented 3D point clouds (5000 points) representing crown-like structures
+- **Output**: High-quality watertight triangle meshes suitable for manufacturing and analysis
+- **Architecture**: Enhanced encoder-decoder with increased capacity (64-dim features, 4-level UNet)
+- **Training Data**: PSR-supervised learning on crown-specific datasets
+- **Inference**: Both conditional generation (from test data) and mesh reconstruction capabilities
+
+The system is particularly optimized for crown-like geometries with smooth surfaces and intricate details, making it suitable for dental, architectural crown moldings, or similar applications requiring high-fidelity 3D reconstruction.
 
 ## Environment Setup
 
