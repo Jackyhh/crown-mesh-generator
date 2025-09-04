@@ -109,6 +109,19 @@ class Trainer(object):
             psr_grid = self.dpsr(points, normals)
             if self.cfg['model']['psr_tanh']:
                 psr_grid = torch.tanh(psr_grid)
+            
+            print(f"DEBUG: psr_grid.shape = {psr_grid.shape}")
+            print(f"DEBUG: psr_gt.shape = {psr_gt.shape}")
+            
+            # Fix shape mismatch by downsampling psr_grid to match psr_gt
+            if psr_grid.shape != psr_gt.shape:
+                psr_grid = torch.nn.functional.interpolate(
+                    psr_grid.unsqueeze(1), 
+                    size=psr_gt.shape[1:], 
+                    mode='trilinear', 
+                    align_corners=False
+                ).squeeze(1)
+                print(f"DEBUG: Downsampled psr_grid.shape = {psr_grid.shape}")
 
             # apply a rescaling weight based on GT SDF values
             if self.cfg['train']['gauss_weight']>0:
@@ -244,6 +257,15 @@ class Trainer(object):
             points, normals = model(p)
             # DPSR to get predicted psr grid
             psr_grid = self.dpsr(points, normals)
+            
+            # Fix shape mismatch by downsampling psr_grid to match psr_gt
+            if psr_grid.shape != psr_gt.shape:
+                psr_grid = torch.nn.functional.interpolate(
+                    psr_grid.unsqueeze(1), 
+                    size=psr_gt.shape[1:], 
+                    mode='trilinear', 
+                    align_corners=False
+                ).squeeze(1)
 
         eval_dict['psr_l1'] = F.l1_loss(psr_grid, psr_gt).item()
         eval_dict['psr_l2'] = F.mse_loss(psr_grid, psr_gt).item()

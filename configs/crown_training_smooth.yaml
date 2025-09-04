@@ -1,0 +1,61 @@
+data:
+  class: null
+  data_type: psr_full
+  input_type: pointcloud
+  path: data/crown_psr
+  num_gt_points: 10000
+  num_offset: 7
+  pointcloud_n: 5000
+  pointcloud_noise: 0.005  # Reduced from 0.01 for smoother surfaces
+  
+model:
+  grid_res: 256  # Increased from 128 for finer detail
+  psr_sigma: 4   # Increased from 2 for smoother reconstruction
+  psr_tanh: True
+  normal_normalize: False
+  predict_normal: True
+  predict_offset: True
+  c_dim: 64
+  s_offset: 0.001
+  encoder: local_pool_pointnet
+  encoder_kwargs:
+    hidden_dim: 64
+    plane_type: 'grid'
+    grid_resolution: 64
+    unet3d: True
+    unet3d_kwargs:
+      num_levels: 4
+      f_maps: 64
+      in_channels: 64
+      out_channels: 64
+  decoder: simple_local
+  decoder_kwargs:
+    sample_mode: bilinear
+    hidden_size: 64
+    
+train:
+  batch_size: 4   # Reduced due to higher resolution
+  lr: 2e-4        # Slightly lower for stability
+  out_dir: out/crown/training_smooth
+  w_psr: 1
+  model_selection_metric: psr_l2
+  print_every: 50
+  checkpoint_every: 500
+  validate_every: 2000
+  backup_every: 5000
+  total_epochs: 100000
+  visualize_every: 2000
+  exp_pcl: True
+  exp_mesh: True
+  n_workers: 0
+  n_workers_val: 0
+  
+generation:
+  batch_size: 25000  # Reduced for memory with higher resolution
+  exp_gt: False
+  exp_input: True
+  psr_resolution: 256   # Increased from 128 for smoother meshes
+  psr_sigma: 4          # Increased from 2 for smoother surfaces
+  vis_n_outputs: 20
+  generate_mesh: true
+  generate_pointcloud: true
